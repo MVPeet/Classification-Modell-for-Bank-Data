@@ -1,0 +1,238 @@
+---
+title: "ML Hausarbeit Kunze"
+author: "CV"
+date: "2025-01-12"
+output: 
+  html_document:
+    code_folding: "hide"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Classification mit Bankdataset 
+## Einleitung
+Diese Ausarbeitung befasst sich mit einem typischen *Classification* Problem aus dem Statistical Learning. Das verwendete [Datenset](https://archive.ics.uci.edu/dataset/222/bank+marketing) enthält Informationen, die im Zeitraum Mai 2008 bis November 2010 aus der Telefonmarketingkampagne einer portugiesischen Bank erhoben wurden. Ziel der Classification ist es, anhand der gegebenen Daten ein Modell zu erstellen, mit dem sich vorhersagen lässt, ob ein Kunde sich mit einem Werbetelefonat zu einem Festgeldinvestment überzeugen lassen wird, oder nicht. Dies ist für das Bankunternehmen wichtig, damit es seine Bemühungen, bzw. seine Ressourcen auf diejenigen Kunden fokussieren kann, bei denen es wahrscheinlich ist, dass sie ein Investment tätigen werden.
+<br><br>
+**Vorbereitung**<br> Die benötigten Libraries werden hier geladen. Außerdem wird das CSV-File eingelesen. Um bei der Cross Validation auch reproduzierbare Ergebnisse zu erzielen, wird set.seed() verwendet.
+
+```{r libraries}
+library(ggplot2)
+library(boot)
+library(caret)
+library(dplyr)
+library(tidyr)
+
+
+bankdata = read.csv("bank-full.csv", TRUE, ";")
+attach(bankdata)
+set.seed(42)
+```
+  
+
+## Deskriptive Statistik
+### Beschreibung der Variablen
+Das Set enthält **n** = 45211 Beobachtung mit **16** verschiedenen  Features und **1** Response / Outputvariable, die nun kurz vorgestellt werden sollen. Dabei ist anzumerken, dass es sich nicht um 45211 verschiedene Kunden handelt, sondern mit einigen Kunden mehr als einmal Kontakt aufgebaut wurde.<br><br>
+```{r}
+dim(bankdata)
+```
+
+
+**age**[integer]: Alter der Person<br>
+**job**[categorial]: Berufliche Tätigkeit / Berufsgruppe der Person<br>
+**marital**[categorial]: Familienstand (ledig, verheiratet, geschieden. Dabei gilt: verwitwet == geschieden)<br>
+**education**[categorial]: Bildungsgrad (unbekannt/ *primär*, entspricht Grundschulbildung / *sekundär*, entspricht Highschool, Abitur o.ä. / *tertiär*, entpsricht Hochschulabschluss)<br>
+**default**[binary]: Ob Kunde einer Zahlung bei einem bestehenden Kredit nicht nachkommen konnte(ja/nein)<br>
+**balance**[integer]: Durchschnittliches jährliches Guthaben in ganzen Euro<br>
+**housing**[binary]: Ob der Kunde ein Immobiliendarlehen aufgenommen hat (ja/nein)<br>
+**loan**[binary]: Ob der Kunde ein persönliches Darlehen (z.B. Autokredit, Konsumkredit) aufgenommen hat (ja/nein)<br>
+**contact**[categorial]: Art des letzten Kontakts mit dem Kunden (telefonisch, mobil, unbekannt)<br>
+**day**[date]: Tag des letzten Kontakts im Monat<br>
+**month**[date]: Monat des letzten Kontakts im Jahr<br>
+**duration**[integer]: Dauer des letzten Kontakts in Sekunden<br>
+**campaign**[integer]: Anzahl der Kontakte während dieser Marketingkampagne für diesen Kunden<br>
+**pdays**[integer]: Anzahl der Tage seit dem letzten Kontakt in einer vorherigen Kampagne (-1 bedeutet, dass der Kunde zuvor noch nicht kontaktiert wurde)<br>
+**previous**[integer]: Anzahl der Kontakte vor dieser Kampagne für diesen Kunden<br>
+**poutcome**[categorial]: Ergebnis der vorherigen Marketingkampagne (erfolglos, erfolgreich, andere, unbekannt)<br>
+**y**[binary]: Outputvariable, die vorhergesagt werden soll: Ob der Kunde ein Termingeld abgeschlossen hat (ja/nein)<br><br>
+
+*Ergänzend werden hier noch die möglichen Werte der "**job**" Variable gezeigt*<br>
+```{r}
+unique(job)
+```
+## Verteilungen
+Für einige Variablen sollen nun die Verteilungen gezeigt werden. Die Variablen, bei denen es Sinn ergibt, werden kurz mit der summary()-Funktion gezeigt werden. Diese gibt die jeweiligen üblichen Kennwerte des Box-Plots und den Mittelwert einer Variable an. Variablen wie "month" werden nicht näher betrachtet. Es wäre zwar interessant zu wissen, ob Kampagnen in bestimmten Monaten signifikant besser abschneiden, die Klärung dieser Frage ist jedoch nicht Ziel dieser Ausarbeitung. <br>
+
+### Jobverteilung
+Mit dem folgenden Chunk wird ein Balkendiagramm erstellt. Darin werden die *absoluten Häufigkeiten* der vorkommenden Berufsgruppen gezeigt und darunter werden die jeweiligen Werte geprintet. Da **job** eine *qualitative* Variable ist, muss diese vorher erst faktorisiert werden. Diese Faktorisierung wird analog auch bei den anderen qualitativen Variablen vorgenommen. Dies wird später auch bei der log. Regression wichtig, damit *R* diese Variablen auch als kategorische Werte erkennt.
+```{r}
+bankdata$job = as.factor(bankdata$job)  
+ggplot(bankdata, aes(x = job)) + 
+  geom_bar(fill = "skyblue", color = "black") +  
+  labs(
+    title = "Häufigkeiten der Variable 'job'",
+    x = "Beruf (Job)",
+    y = "Häufigkeit"
+  ) +
+  theme_minimal() +  
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  
+
+job_häufigkeit = table(bankdata$job)
+print(job_häufigkeit)
+
+```
+
+### Altersverteilung
+Balken in 5 Jahres Schritten
+```{r}
+ggplot(bankdata, aes(x = age)) + 
+  geom_histogram(binwidth = 5, fill = "skyblue", color = "black") +  # Balkenbreite auf 5 Jahre setzen
+  labs(
+    title = "Verteilung der Variable 'age'",
+    x = "Alter",
+    y = "Häufigkeit"
+  ) +
+  theme_minimal()
+
+
+```
+### Verteilung des Kontostands
+```{r}
+ggplot(bankdata, aes(x = balance)) +
+  geom_histogram(binwidth = 500, fill = "skyblue", color = "black") +
+  labs(
+    title = "Verteilung des durchschnittlichen jährlichen Guthabens",
+    x = "Durchschnittliches jährliches Guthaben",
+    y = "Häufigkeit"
+  ) +
+  theme_minimal()
+```
+
+### Familienstand
+```{r}
+bankdata$marital = as.factor(bankdata$marital)
+ggplot(bankdata, aes(x = marital)) + 
+  geom_bar(fill = "skyblue", color = "black") +  
+  labs(
+    title = "Häufigkeiten der Variable 'marital'",
+    x = "Familienstand",
+    y = "Häufigkeit"
+  ) +
+  theme_minimal() +  
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  
+fam_häufigkeit = table(bankdata$marital)
+print(fam_häufigkeit)
+```
+
+### Häufigkeit des Investments nach Werbung
+```{r}
+bankdata$y = as.factor(bankdata$y)
+ggplot(bankdata, aes(x = y)) +
+  geom_bar(fill = "skyblue", color = "black") +
+  labs(
+    title = "Häufigkeit von 'Ja' und 'Nein' in y",
+    x = "Antwort (Ja/Nein)",
+    y = "Häufigkeit"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+y_häufigkeit = table(bankdata$y)
+print(y_häufigkeit)
+```
+### Überblick der Wertebereiche der numerischen Variablen
+Hier sollen nur die Variablen betrachtet werden, bei denen es Sinn ergibt.
+```{r}
+summary(bankdata[, c("age", "balance", "duration","campaign")])
+```
+### Scatterplot - Matrix
+Die Scatterplot Matrix zeigt keine Korrelationen der Werte untereinander. Aufgrund der Größe des Datensatzes (dauert lange zum Laden) und weil sie wenig aussagekräftig ist, wurde sie auskommentiert, der Vollständigkeit halber aber beigefügt. (Siehe Markdown Datei)
+
+<!-- # ```{r} -->
+<!-- # numeric_vars = bankdata[, sapply(bankdata, is.numeric)] -->
+<!-- # pairs( -->
+<!-- #   numeric_vars, -->
+<!-- #   main = "Scatterplot-Matrix für die numerische Variablen von Bankdata", -->
+<!-- #   pch = 20, -->
+<!-- #   col = "blue" -->
+<!-- # ) -->
+<!-- # ``` -->
+
+# Statistische Verfahren
+## Logistische Regression
+Bevor man die logistische Regression durchführt, werden die Daten in *zufällig* ausgewählt und in ein Trainings- bzw. Testsubset geteilt. Dabei sollen 30% der Daten als Testset dienen. Damit diese "Zufälligkeit" reproduzierbar bleibt, wird set.seed(42) verwendet. Der Code bestimmt erst die Anzahl aller Einträge (n) und bestimmt dann die Trainingsgröße (0.7*n). Mit der sample() Funktion werden zufällig 70% aus der ganzen zahlen aus n gezogen und als Indizes der Trainingsdaten markiert. Anschließend werden Trainings und Testsubset durch Angabe der Indizes gebildet.
+```{r}
+set.seed(42)
+n = nrow(bankdata) 
+train_size = floor(0.7 * n)
+train_indices = sample(seq_len(n), size = train_size)
+
+train_data = bankdata[train_indices, ]  # 70% der Daten
+test_data = bankdata[-train_indices, ]  # 30%, Alle Daten, wo 1 Spalte ungleich der Zahl von denen in train_indices ist
+
+
+cat("Trainingsdaten: ", nrow(train_data), "\n")
+cat("Testdaten: ", nrow(test_data), "\n")
+
+```
+
+```{r Logistical Regression}
+
+bankdata$job = as.factor(bankdata$job)
+bankdata$marital = as.factor(bankdata$marital)
+bankdata$education = as.factor(bankdata$education)
+bankdata$default = as.factor(bankdata$default)
+bankdata$housing = as.factor(bankdata$housing)
+bankdata$loan = as.factor(bankdata$loan)
+bankdata$contact = as.factor(bankdata$contact)
+bankdata$month = as.factor(bankdata$month)
+bankdata$poutcome = as.factor(bankdata$poutcome)
+bankdata$y = as.factor(bankdata$y)
+
+glmfit = glm(y ~ ., data = train_data, family = binomial)
+glmpredictions = predict(glmfit, newdata = test_data, type = "response")
+predicted_class = ifelse(glmpredictions > 0.5, "yes", "no")
+confusion_matrix = table(Predicted = predicted_class, Actual = test_data$y)
+print(confusion_matrix)
+err.rate = 1-sum(diag(confusion_matrix)) / sum(confusion_matrix)
+cat("Error Rate:", err.rate, "\n")
+
+```
+Das Modell erzielt eine Test Error Rate von insgesamt 9,7%
+```{r}
+glmfitganz = glm(y~., data = bankdata, family = binomial)
+predictionsganz <- predict(glmfitganz, type = "response")
+predicted_class_ganz <- ifelse(predictionsganz > 0.5, "yes", "no")
+confusion_matrix_ganz <- table(Predicted = predicted_class_ganz, Actual = bankdata$y)
+print(confusion_matrix_ganz)
+
+err.rate = 1 -sum(diag(confusion_matrix_ganz)) / sum(confusion_matrix_ganz)
+cat("Error Rate:", err.rate, "\n")
+```
+Wendet man die logistische Regression auf den gesamten Datensatz an, ergibt sich eine Error Rate von 9,8%. Dies kann ein Anzeichen von Overfitting sein. <br>
+Vergleicht man die True Yes Rate ergibt sich eine leichte Verbesserung um 1,1 Prozentpunkte.
+```{r}
+ty_training = 569/1591
+ty_ganz = 1833/5289
+
+cat("True yes von Trainingsdaten:", ty_training,"\n")
+cat("True Yes Rate von Gesamtset:", ty_ganz,"\n")
+cat("Differenz ist Verbesserung um", ty_training,"-",ty_ganz,"=", ty_training - ty_ganz)
+```
+
+## Cross Validation
+Um die Leistungsfähigkeit des Modells besser einschätzen zu können, wenden wir auf den Datensatz nun 10-fache Kreuzvalidierung an. Dafür wird mit trainControl() erst ein Kontrollobjekt für die CV erstellt. Anschließend lässt sich ein neues Modell durch train() mit der CV trainieren.
+Im Mittel haben die 10 verschiedenen Validierungssets eine Vorhersage genauigkeit von 90,2% erzielt. 
+Der Kappa-Wert ist ein Wert der Übereinstimmung zwischen den vorhergesagten und den tatsächlichen Klassen misst. Dass er bei ca. 40% liegt, weist auf eine moderate Übereinstimmung hin. Das bedeutet, dass das Modell zwar besser als eine zufällige Vorhersage abschneidet, aber noch Verbesserungspotenzial besteht.
+
+
+```{r 10-fold CV}
+
+ctrl = trainControl(method = "cv", number = 10) #Kontrollobjekt, 10-Fold CV
+model = train(y ~ ., data = bankdata, method = "glm", family = binomial, trControl = ctrl)
+print(model)
+
+```
+
+# Bewertung der Ergebnisse
+Das Modell der logistischen Regression hat mit einer Error Rate von 9,3%, bzw. einer Accuracy von 90,7% gute Ergebnisse erzielt. Die True Yes Rate liegt bei einer Rate von 35,7% im Testset, was signifikant höher ist, als wenn man immer auf 'Yes' getippt hätte (1591/13564) = 11,7%.
+Die Leistungsfähigkeit des Modells wird auch durch die Cross-Validation bestätigt. Dort konnte man im Mittel eine Accuracy von 90,1% erzielen, bzw. eine Error Rate von 9,9%. Wie oben bereits erwähnt, zeugt der Kappa-Wert von knapp 40% davon, dass das Modell verbesserungsfähig ist. Dafür könnte man weitere, leistungsfähigere Methoden verwenden, oder Methoden, bei denen man Parameter-Finetuning betreiben kann.
